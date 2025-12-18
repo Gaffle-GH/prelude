@@ -5,7 +5,7 @@
 --- MOD_DESCRIPTION: Placeholder~
 --- PREFIX: playtime
 --- VERSION: 0.0.0 BETA
---- BADGE_COLOUR: #ffa1d4
+--- BADGE_COLOUR: ffa1d4
 -----------------------------------------------------
 ------------------- MOD CODE ------------------------
 
@@ -53,7 +53,7 @@ SMODS.Joker{
         text = {
             'Retriggers all played cards {C:attention}#1#{} time(s)',
             'Gains {C:attention}+1{} retrigger after each {C:attention}Blind{}.',
-            '',
+            ' ',
             '{C:green}#2# in #3#{} chance to {C:red}deflate{} after each hand'
         }
     },
@@ -173,7 +173,7 @@ SMODS.Joker{
     atlas = "Jokers",
     pos = {x = 0, y = 1},
     rarity = 3,
-    cost = 20,
+    cost = 12,
 
     config = {
         extra = {
@@ -233,7 +233,7 @@ SMODS.Joker{
                 local card_to_delete = G.hand.cards[math.random(#G.hand.cards)]
                 
                 G.E_MANAGER:add_event(Event({
-                    trigger = 'after',
+                    trigger = 'before',
                     delay = 0.1,
                     blockable = false,
                     func = function()
@@ -246,7 +246,7 @@ SMODS.Joker{
 
                 -- Create a random joker with proper delay
                 G.E_MANAGER:add_event(Event({
-                    trigger = 'after',
+                    trigger = 'before',
                     delay = 0.4,
                     blockable = false,
                     func = function()
@@ -264,11 +264,29 @@ SMODS.Joker{
                     colour = G.C.ORANGE
                 }
             else
-                -- No room for jokers - earn money instead
+                -- No room for jokers -  destroys hand & earn money instead
                 -- Increment hand counter
+                local has_room = #G.jokers.cards < G.jokers.config.card_limit
+                
+                local card_to_delete = G.hand.cards[math.random(#G.hand.cards)]
+                
+                G.E_MANAGER:add_event(Event({
+                    trigger = 'before',
+                    delay = 0.1,
+                    blockable = false,
+                    func = function()
+                        play_sound('tarot1')
+                        card_to_delete:juice_up(0.3, 0.4)
+                        card_to_delete:start_dissolve()
+                        return true
+                    end
+                }))
+
+                
                 card.ability.extra.hands_played = card.ability.extra.hands_played + 1
 
                 -- Check if we've reached the cycle
+
                 if card.ability.extra.hands_played >= card.ability.extra.hands_per_cycle then
                     -- Reset counter
                     card.ability.extra.hands_played = 0
@@ -282,7 +300,7 @@ SMODS.Joker{
                     })
                     
                     return {
-                        message = "Ca-Ching!",
+                        message = "Pop!",
                         colour = G.C.MONEY
                     }
                 else
@@ -297,55 +315,107 @@ SMODS.Joker{
 }
 
 --------------------------------------------------
--- Door?
+-- Russian Roulette
 --------------------------------------------------
 SMODS.Joker{
-    key = "door",
+    key = "russian_roulette",
     atlas = "Jokers",
     pos = {x = 0, y = 2},
     rarity = 3,
     cost = 20,
 
-    loc_txt = {
-        name = 'Door',
-        text = {
-            'A strange door.',
-            'Who knows where it leads?'
+    config = {
+        extra = {
+            mult = 0
         }
     },
 
+    loc_txt = {
+        name = 'Russian Roulette',
+        text = {
+            'Before scoring, {C:attention}50/50{} chance:',
+            'Gain {C:red}+5{} Mult or {C:red}Destroy{} a random card in hand',
+            ' ',
+            '{C:inactive}(Currently {C:red}+#1#{C:inactive} Mult){}'
+        }
+    },
+    
     loc_vars = function(self, info_queue, center)
         -- Add credits info box
         info_queue[#info_queue+1] = {
             set = 'Other',
-            key = 'playtime_door_credits'
+            key = 'playtime_russian_roulette_credits'
         }
+
+        return {vars = {
+            center.ability.extra and center.ability.extra.mult or 0
+        }}
     end,
 
     calculate = function(self, card, context)
-        return {}
+        -- Initialize extra fields if they don't exist
+        if not card.ability.extra then
+            card.ability.extra = {
+                mult = 0
+            }
+        end
+
+        -- Trigger BEFORE scoring
+        if context.before and not context.blueprint then      
+            -- 50/50 coin flip: add mult or destroy card
+            if pseudorandom('russian_roulette') < 0.5 then
+                -- Heads: Add +5 Mult - ONLY shake and show message here
+                card.ability.extra.mult = card.ability.extra.mult + 5
+            
+                play_sound('generic1', 1.2, 0.7)
+
+                return {
+                    message = "+5 Mult!",
+                    colour = G.C.RED,
+                    card = card
+                }
+            else
+                -- Tails: Destroy a random card from hand - NO shake or message on joker
+                if #G.hand.cards > 0 then
+                    local card_to_delete = G.hand.cards[math.random(#G.hand.cards)]
+                    card:juice_up(0.5, 0.5)
+                    
+                    play_sound('tarot1')
+                    card_to_delete:juice_up(0.3, 0.4)
+                    card_to_delete:start_dissolve()
+                end
+                -- Don't return anything - no message or shake for the joker
+            end
+        end
+    
+
+        -- Apply mult when scoring
+        if context.joker_main and card.ability.extra.mult > 0 then
+            return {
+                message = localize{type='variable', key='a_mult', vars={card.ability.extra.mult}},
+                mult_mod = card.ability.extra.mult,
+                colour = G.C.RED
+            }
+        end
     end
 }
-
-
 --------------------------------------------------
--- Add Custom Localization (Credits Boxes)
+-- Custom Localization (Credits Boxes)
 --------------------------------------------------
--- This gets injected when items are loaded
 SMODS.current_mod.process_loc_text = function()
     G.localization.descriptions.Other = G.localization.descriptions.Other or {}
     
     G.localization.descriptions.Other.playtime_pan_credits = {
         name = "Credits",
         text = {
-            "Concept by: {C:attention}Mystery Person{}",
+            "Concept by: {C:attention}@abbadabbers{}",
         }
     }
-    
-    G.localization.descriptions.Other.playtime_door_credits = {
+
+    G.localization.descriptions.Other.playtime_russian_roulette_credits = {
         name = "Credits",
         text = {
-            "Concept by: {C:attention}Mystery Person{}",
+            "Concept by: {C:attention}@caserrr{}",
         }
     }
 end
